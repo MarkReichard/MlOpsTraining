@@ -1,0 +1,12 @@
+# Dependencies for the Neural Network trainer container.
+# This model uses scikit-learn's MLPClassifier (Multi-Layer Perceptron).
+# If you later swap to TensorFlow or PyTorch, update this file — that's the
+# only container affected.
+
+# Data handling
+numpy==1.26.4
+pandas==2.2.2
+
+# ML — scikit-learn contains MLPClassifier and the Pipeline utilities
+scikit-learn==1.4.2
+joblib==1.4.2

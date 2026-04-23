@@ -1,0 +1,10 @@
+# Dependencies for the Random Forest trainer container.
+# Kept separate from the neural net so each container installs only what it needs.
+
+# Data handling
+numpy==1.26.4
+pandas==2.2.2
+
+# ML — scikit-learn contains RandomForestClassifier and the Pipeline utilities
+scikit-learn==1.4.2
+joblib==1.4.2

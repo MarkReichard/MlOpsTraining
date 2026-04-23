@@ -1,25 +1,53 @@
 services:
-  trainer:
+
+  # ── Trainers ──────────────────────────────────────────────────────────────
+  # Each trainer is a one-shot container: it trains its model, saves the
+  # pipeline.joblib to its own artifacts/ directory, and exits with code 0.
+  # Add a new model by creating a models/<name>/ folder and a new service here.
+
+  trainer-random-forest:
     build:
       context: .
-      dockerfile: docker/Dockerfile.trainer
+      dockerfile: models/random_forest/Dockerfile
     volumes:
       - ./data:/data:ro
-      - ./models:/models
+      # Write the trained pipeline into the model's own artifacts/ directory.
+      # This keeps each model's output completely isolated from the others.
+      - ./models/random_forest/artifacts:/artifacts
     environment:
       DATA_PATH: /data/train.csv
-      MODEL_PATH: /models/pipeline.joblib
+      MODEL_PATH: /artifacts/pipeline.joblib
+
+  trainer-neural-net:
+    build:
+      context: .
+      dockerfile: models/neural_net/Dockerfile
+    volumes:
+      - ./data:/data:ro
+      - ./models/neural_net/artifacts:/artifacts
+    environment:
+      DATA_PATH: /data/train.csv
+      MODEL_PATH: /artifacts/pipeline.joblib
+
+  # ── API ───────────────────────────────────────────────────────────────────
+  # The API mounts every model's artifacts/ directory under /models/<name>/
+  # so it can discover and load all pipelines at startup.
+  # To expose a new model to the API, add a volume mount here.
 
   api:
     build:
       context: .
-      dockerfile: docker/Dockerfile.api
+      dockerfile: api/Dockerfile
     ports:
       - "8000:8000"
     volumes:
-      - ./models:/models:ro
+      - ./models/random_forest/artifacts:/models/random_forest:ro
+      - ./models/neural_net/artifacts:/models/neural_net:ro
     environment:
-      MODEL_PATH: /models/pipeline.joblib
+      MODELS_DIR: /models
+      DEFAULT_MODEL: random_forest
     depends_on:
-      trainer:
+      trainer-random-forest:
+        condition: service_completed_successfully
+      trainer-neural-net:
         condition: service_completed_successfully

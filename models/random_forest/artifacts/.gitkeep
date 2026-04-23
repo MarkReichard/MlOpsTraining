@@ -1,0 +1,3 @@
+# Keeps the artifacts/ directory tracked by git even when it is empty.
+# pipeline.joblib is written here by the trainer container and is excluded
+# from git via .gitignore.

@@ -1,0 +1,18 @@
+# Dependencies for the API container.
+# Must include the libraries needed to deserialise both model types:
+# - scikit-learn for the Random Forest and Neural Net pipelines (both use sklearn)
+# If you add a model built with a different framework (e.g. TensorFlow), add its
+# package here so the API container can load that pipeline too.
+
+# Data handling
+numpy==1.26.4
+pandas==2.2.2
+
+# ML — needed to deserialise the saved sklearn pipelines
+scikit-learn==1.4.2
+joblib==1.4.2
+
+# API
+fastapi==0.111.0
+uvicorn==0.29.0
+pydantic==2.7.1

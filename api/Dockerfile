@@ -2,10 +2,10 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY api/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY src/predict_api.py .
+COPY api/predict_api.py .
 
 EXPOSE 8000
 

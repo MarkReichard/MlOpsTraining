@@ -6,14 +6,21 @@ Write-Host "Stopping running containers..." -ForegroundColor Yellow
 docker compose down
 Write-Host ""
 
-# Remove the saved model so training runs fresh
-Write-Host "Removing saved model artifact..." -ForegroundColor Yellow
-$modelPath = Join-Path $PSScriptRoot "models\pipeline.joblib"
-if (Test-Path $modelPath) {
-    Remove-Item $modelPath -Force
-    Write-Host "Deleted models\pipeline.joblib" -ForegroundColor Green
-} else {
-    Write-Host "No model artifact found, nothing to delete." -ForegroundColor Gray
+# Remove model artifacts from every model's artifacts/ directory.
+# Add a new entry here whenever you add a new model folder.
+Write-Host "Removing model artifacts..." -ForegroundColor Yellow
+$artifactPaths = @(
+    "models\random_forest\artifacts\pipeline.joblib",
+    "models\neural_net\artifacts\pipeline.joblib"
+)
+foreach ($relativePath in $artifactPaths) {
+    $fullPath = Join-Path $PSScriptRoot $relativePath
+    if (Test-Path $fullPath) {
+        Remove-Item $fullPath -Force
+        Write-Host "Deleted $relativePath" -ForegroundColor Green
+    } else {
+        Write-Host "Not found (skipping): $relativePath" -ForegroundColor Gray
+    }
 }
 Write-Host ""
 
@@ -23,5 +30,6 @@ Write-Host "Starting training and API..." -ForegroundColor Yellow
 docker compose up --build --detach
 Write-Host ""
 Write-Host "API is running at http://localhost:8000" -ForegroundColor Green
-Write-Host "Swagger UI: http://localhost:8000/docs" -ForegroundColor Green
-Write-Host "To stop: docker compose down" -ForegroundColor Gray
+Write-Host "Available models: http://localhost:8000/models" -ForegroundColor Green
+Write-Host "Swagger UI:       http://localhost:8000/docs" -ForegroundColor Green
+Write-Host "To stop:          docker compose down" -ForegroundColor Gray
