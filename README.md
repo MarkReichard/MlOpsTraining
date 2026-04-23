@@ -214,9 +214,17 @@ live test requests without installing any tools.
 docker compose down
 ```
 
-To remove the trained model and retrain from scratch:
+## Resetting and Retraining
 
-```bash
-rm models/pipeline.joblib
-docker compose up
+A convenience script handles the full reset cycle — stops containers, deletes the saved
+model, and rebuilds/restarts everything in one step.
+
+**PowerShell:**
+```powershell
+.\reset.ps1
 ```
+
+> Note the `.\` prefix. PowerShell requires it to run scripts in the current directory.
+
+The script runs Docker Compose in detached mode (`-d`), so the terminal returns immediately
+and the API continues running in the background. Use `docker compose down` to stop it.
