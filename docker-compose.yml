@@ -1,0 +1,25 @@
+services:
+  trainer:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.trainer
+    volumes:
+      - ./data:/data:ro
+      - ./models:/models
+    environment:
+      DATA_PATH: /data/train.csv
+      MODEL_PATH: /models/pipeline.joblib
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/models:ro
+    environment:
+      MODEL_PATH: /models/pipeline.joblib
+    depends_on:
+      trainer:
+        condition: service_completed_successfully
