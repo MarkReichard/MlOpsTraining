@@ -32,6 +32,8 @@ import joblib
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
+from sklearn.metrics import accuracy_score, roc_auc_score
+from sklearn.model_selection import train_test_split
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -42,11 +44,22 @@ from pydantic import BaseModel, Field
 # this container, so the API sees /models/random_forest/pipeline.joblib, etc.
 MODELS_DIR = os.environ.get("MODELS_DIR", "/models")
 
+# Path to the labelled CSV used for training — mounted read-only from ./data.
+DATA_PATH = os.environ.get("DATA_PATH", "/data/train.csv")
+
+# Name of the column that holds the ground-truth survival label.
+SURVIVAL_TARGET = "Survived"
+
+# Reproduce the exact split used during training so /test evaluates on the
+# same held-out rows the trainers never saw.
+TEST_SIZE = 0.2
+RANDOM_STATE = 42
+
 # Name of the model to use when the caller does not specify one.
 DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "random_forest")
 
 # The exact set of columns every pipeline expects, in training order.
-FEATURE_COLUMNS = ["Pclass", "Age", "SibSp", "Parch", "Fare", "Sex", "Embarked"]
+FEATURE_COLUMNS = ["PassengerClass", "Age", "SiblingsOrSpouses", "ParentsOrChildren", "Fare", "Sex", "PortOfEmbarkation"]
 
 # Dict that maps model name → loaded pipeline object.  Populated at startup.
 loaded_pipelines: dict = {}
@@ -115,25 +128,25 @@ class PassengerFeatures(BaseModel):
     Age and Embarked are optional — if omitted the preprocessing pipeline
     fills them in automatically using values learned during training.
     """
-    Pclass: int = Field(..., ge=1, le=3, description="Passenger class: 1, 2, or 3")
-    Sex: str = Field(..., description="Passenger sex: 'male' or 'female'")
-    Age: Optional[float] = Field(None, ge=0.0, description="Age in years (null = imputed)")
-    SibSp: int = Field(..., ge=0, description="Number of siblings or spouses aboard")
-    Parch: int = Field(..., ge=0, description="Number of parents or children aboard")
-    Fare: float = Field(..., ge=0.0, description="Ticket fare in British pounds")
-    Embarked: Optional[str] = Field(None, description="Port of embarkation: C, Q, or S")
+    PassengerClass: int = Field(..., ge=1, le=3, description="Ticket class: 1 = First (most expensive, upper deck), 2 = Second (middle deck), 3 = Third (cheapest, lower deck)")
+    Sex: str = Field(..., description="Passenger sex: male or female")
+    Age: Optional[float] = Field(None, ge=0.0, description="Age in years. Leave null and the model substitutes the median training age (~28)")
+    SiblingsOrSpouses: int = Field(..., ge=0, description="Number of siblings or spouses travelling with this passenger")
+    ParentsOrChildren: int = Field(..., ge=0, description="Number of parents or children travelling with this passenger")
+    Fare: float = Field(..., ge=0.0, description="Ticket price in British pounds. Typical values: ~7 (third class), ~13 (second class), ~30-500 (first class)")
+    PortOfEmbarkation: Optional[str] = Field(None, description="Port where the passenger boarded: C = Cherbourg, Q = Queenstown, S = Southampton. Leave null and the model uses the most common port (S)")
 
     model_config = {
         "json_schema_extra": {
             "examples": [
                 {
-                    "Pclass": 1,
+                    "PassengerClass": 1,
                     "Sex": "female",
                     "Age": 29.0,
-                    "SibSp": 0,
-                    "Parch": 0,
+                    "SiblingsOrSpouses": 0,
+                    "ParentsOrChildren": 0,
                     "Fare": 211.34,
-                    "Embarked": "S",
+                    "PortOfEmbarkation": "S",
                 }
             ]
         }
@@ -184,17 +197,22 @@ def predict(
     ),
 ) -> PredictionResponse:
     """
-    Accept one or more passengers and return a survival prediction for each.
+    Submit one or more passengers and receive a survival prediction for each.
 
-    The ?model= query parameter selects which trained model to use.
-    If omitted, the DEFAULT_MODEL environment variable is used (random_forest).
+    Use the **?model=** query parameter to choose which trained model answers
+    (default: `random_forest`). Call `GET /models` to see what is available.
 
-    Steps:
-      1. Look up the requested model in the loaded_pipelines dictionary.
-      2. Convert the incoming JSON into a pandas DataFrame.
-      3. Select only the columns the pipeline was trained on.
-      4. Ask the pipeline for predicted classes and survival probabilities.
-      5. Return one result per passenger.
+    **Request body fields**
+
+    | Field | Required | Valid values |
+    |---|---|---|
+    | `PassengerClass` | yes | `1` = First class, `2` = Second class, `3` = Third class |
+    | `Sex` | yes | `male` or `female` |
+    | `Age` | no | Number ≥ 0. Omit to use the training median (~28 years) |
+    | `SiblingsOrSpouses` | yes | Integer ≥ 0 — siblings or spouses aboard |
+    | `ParentsOrChildren` | yes | Integer ≥ 0 — parents or children aboard |
+    | `Fare` | yes | Number ≥ 0 — ticket price in British pounds |
+    | `PortOfEmbarkation` | no | `C` = Cherbourg, `Q` = Queenstown, `S` = Southampton. Omit for `S` |
     """
     if model not in loaded_pipelines:
         available = list(loaded_pipelines.keys())
@@ -226,6 +244,50 @@ def predict(
     ]
 
     return PredictionResponse(model_used=model, predictions=results)
+
+
+@app.get("/test", summary="Benchmark all models on held-out validation data")
+def test_models() -> dict:
+    """
+    Evaluate every loaded model against the 20% of training data that was held
+    back during training (same random split used by both trainers).
+
+    Returns accuracy and ROC AUC for each model so you can compare them
+    side-by-side. A higher ROC AUC means the model ranks survivors above
+    non-survivors more reliably across all decision thresholds.
+    """
+    if not os.path.isfile(DATA_PATH):
+        raise HTTPException(
+            status_code=503,
+            detail=f"Test data not found at {DATA_PATH}. Check the DATA_PATH volume mount.",
+        )
+
+    raw = pd.read_csv(DATA_PATH)
+    raw = raw.rename(columns={
+        "Pclass": "PassengerClass",
+        "SibSp": "SiblingsOrSpouses",
+        "Parch": "ParentsOrChildren",
+        "Embarked": "PortOfEmbarkation",
+    })
+
+    features = raw[FEATURE_COLUMNS]
+    labels = raw[SURVIVAL_TARGET]
+
+    _, validation_features, _, validation_labels = train_test_split(
+        features, labels, test_size=TEST_SIZE, random_state=RANDOM_STATE
+    )
+
+    results = {}
+    for model_name, pipeline in loaded_pipelines.items():
+        predicted_classes = pipeline.predict(validation_features)
+        predicted_probabilities = pipeline.predict_proba(validation_features)[:, 1]
+        results[model_name] = {
+            "validation_rows": len(validation_labels),
+            "accuracy": round(accuracy_score(validation_labels, predicted_classes), 4),
+            "roc_auc": round(roc_auc_score(validation_labels, predicted_probabilities), 4),
+        }
+
+    return {"models": results}
 
 
 @app.get("/health", summary="Health check")

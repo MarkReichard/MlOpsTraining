@@ -35,8 +35,8 @@ MODEL_PATH = os.environ.get("MODEL_PATH", "/artifacts/pipeline.joblib")
 # ---------------------------------------------------------------------------
 # Feature definitions
 # ---------------------------------------------------------------------------
-NUMERIC_FEATURES = ["Pclass", "Age", "SibSp", "Parch", "Fare"]
-CATEGORICAL_FEATURES = ["Sex", "Embarked"]
+NUMERIC_FEATURES = ["PassengerClass", "Age", "SiblingsOrSpouses", "ParentsOrChildren", "Fare"]
+CATEGORICAL_FEATURES = ["Sex", "PortOfEmbarkation"]
 TARGET = "Survived"
 
 # ---------------------------------------------------------------------------
@@ -52,6 +52,12 @@ MAX_DEPTH = 5       # Max levels per tree. Shallow trees generalise better on
 def load_data(path: str) -> pd.DataFrame:
     """Load CSV and verify all required columns are present."""
     passenger_data = pd.read_csv(path)
+    passenger_data = passenger_data.rename(columns={
+        "Pclass": "PassengerClass",
+        "SibSp": "SiblingsOrSpouses",
+        "Parch": "ParentsOrChildren",
+        "Embarked": "PortOfEmbarkation",
+    })
     required_columns = NUMERIC_FEATURES + CATEGORICAL_FEATURES + [TARGET]
     missing = [col for col in required_columns if col not in passenger_data.columns]
     if missing:

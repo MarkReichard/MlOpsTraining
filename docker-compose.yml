@@ -43,9 +43,11 @@ services:
     volumes:
       - ./models/random_forest/artifacts:/models/random_forest:ro
       - ./models/neural_net/artifacts:/models/neural_net:ro
+      - ./data:/data:ro
     environment:
       MODELS_DIR: /models
       DEFAULT_MODEL: random_forest
+      DATA_PATH: /data/train.csv
     depends_on:
       trainer-random-forest:
         condition: service_completed_successfully
